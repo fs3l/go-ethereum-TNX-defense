@@ -705,6 +705,19 @@ func (pool *LegacyPool) add(tx *types.Transaction, local bool) (replaced bool, e
 		// Otherwise if we can't make enough room for new one, abort the operation.
 		drop, success := pool.priced.Discard(pool.all.Slots()-int(pool.config.GlobalSlots+pool.config.GlobalQueue)+numSlots(tx), isLocal)
 
+		drop_new := make(types.Transactions, 0, pool.all.Slots()-int(pool.config.GlobalSlots+pool.config.GlobalQueue)+numSlots(tx))
+		for _, dropTx := range drop {
+			if dropTx.GasPrice().Cmp(tx.GasPrice()) < 0 {
+				dropSender, _ := types.Sender(pool.signer, dropTx)
+				if list_dropsender := pool.pending[dropSender]; list_dropsender != nil && list_dropsender.Contains(dropTx.Nonce()) {
+					drop_new = append(drop_new, list_dropsender.LastElement())
+				} else {
+					return false, txpool.ErrUnderpriced
+				}
+			}
+		}
+		drop = drop_new
+
 		// Special case, we still can't make the room for the new remote one.
 		if !isLocal && !success {
 			log.Trace("Discarding overflown transaction", "hash", hash)
